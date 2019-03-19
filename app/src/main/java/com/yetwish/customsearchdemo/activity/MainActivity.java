@@ -3,12 +3,19 @@ package com.yetwish.customsearchdemo.activity;
 import android.app.Activity;
 import android.content.Context;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
+import android.util.JsonReader;
+import android.util.Log;
+import android.view.Menu;
 import android.view.View;
 import android.view.Window;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.EditText;
 import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.yetwish.customsearchdemo.R;
@@ -16,11 +23,25 @@ import com.yetwish.customsearchdemo.activity.adapter.SearchAdapter;
 import com.yetwish.customsearchdemo.activity.model.Bean;
 import com.yetwish.customsearchdemo.activity.widge.SearchView;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+
 
 public class MainActivity extends Activity implements SearchView.SearchViewListener {
+    private static final String TAG = "MainActivity";
+
+    private String mSearchText = "";
+
+    private EditText mTvSearch;
 
     /**
      * 搜索结果列表view
@@ -46,14 +67,8 @@ public class MainActivity extends Activity implements SearchView.SearchViewListe
     /**
      * 搜索结果列表adapter
      */
-    private SearchAdapter resultAdapter;
-
-    private List<Bean> dbData;
-
-    /**
-     * 热搜版数据
-     */
-    private List<String> hintData;
+//    private SearchAdapter resultAdapter;
+    private ArrayAdapter<String> resultAdapter;
 
     /**
      * 搜索过程中自动补全数据
@@ -61,45 +76,44 @@ public class MainActivity extends Activity implements SearchView.SearchViewListe
     private List<String> autoCompleteData;
 
     /**
-     * 搜索结果的数据
-     */
-    private List<Bean> resultData;
-
-    /**
      * 默认提示框显示项的个数
      */
-    private static int DEFAULT_HINT_SIZE = 4;
+    private static int DEFAULT_HINT_SIZE = 5;
 
-    /**
-     * 提示框显示项的个数
-     */
-    private static int hintSize = DEFAULT_HINT_SIZE;
 
-    /**
-     * 设置提示框显示项的个数
-     *
-     * @param hintSize 提示框显示个数
-     */
-    public static void setHintSize(int hintSize) {
-        MainActivity.hintSize = hintSize;
-    }
+    private Handler mHandler = new Handler(){
+        @Override
+        public void handleMessage(Message msg) {
+            for (String s : autoCompleteData){
+                Log.d(TAG, s);
+            }
+            getAutoCompleteData();
+        }
+    };
+
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
+//        requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.activity_main);
-        initData();
         initViews();
+
     }
 
     /**
      * 初始化视图
      */
     private void initViews() {
+        autoCompleteData = new ArrayList<>();
+        autoCompleteAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, autoCompleteData);
+
+        resultAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_1, autoCompleteData);
+
         lvResults = (ListView) findViewById(R.id.main_lv_search_results);
-        searchView = (SearchView) findViewById(R.id.main_search_layout);
+
+        searchView = (SearchView)findViewById(R.id.main_search_layout);
         //设置监听
         searchView.setSearchViewListener(this);
         //设置adapter
@@ -112,89 +126,23 @@ public class MainActivity extends Activity implements SearchView.SearchViewListe
                 Toast.makeText(MainActivity.this, position + "", Toast.LENGTH_SHORT).show();
             }
         });
-    }
 
-    /**
-     * 初始化数据
-     */
-    private void initData() {
-        //从数据库获取数据
-        getDbData();
-        //初始化热搜版数据
-        getHintData();
-        //初始化自动补全数据
-        getAutoCompleteData(null);
-        //初始化搜索结果数据
-        getResultData(null);
-    }
+        mTvSearch = (EditText)findViewById(R.id.search_et_input);
 
-    /**
-     * 获取db 数据
-     */
-    private void getDbData() {
-        int size = 100;
-        dbData = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            dbData.add(new Bean(R.drawable.icon, "android开发必备技能" + (i + 1), "Android自定义view——自定义搜索view", i * 20 + 2 + ""));
-        }
-    }
-
-    /**
-     * 获取热搜版data 和adapter
-     */
-    private void getHintData() {
-        hintData = new ArrayList<>(hintSize);
-        for (int i = 1; i <= hintSize; i++) {
-            hintData.add("热搜版" + i + "：Android自定义View");
-        }
-        hintAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, hintData);
     }
 
     /**
      * 获取自动补全data 和adapter
      */
-    private void getAutoCompleteData(String text) {
-        if (autoCompleteData == null) {
-            //初始化
-            autoCompleteData = new ArrayList<>(hintSize);
-        } else {
-            // 根据text 获取auto data
-            autoCompleteData.clear();
-            for (int i = 0, count = 0; i < dbData.size()
-                    && count < hintSize; i++) {
-                if (dbData.get(i).getTitle().contains(text.trim())) {
-                    autoCompleteData.add(dbData.get(i).getTitle());
-                    count++;
-                }
-            }
-        }
-        if (autoCompleteAdapter == null) {
-            autoCompleteAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, autoCompleteData);
-        } else {
-            autoCompleteAdapter.notifyDataSetChanged();
-        }
+    private void getAutoCompleteData() {
+        autoCompleteAdapter.notifyDataSetChanged();
     }
 
     /**
      * 获取搜索结果data和adapter
      */
-    private void getResultData(String text) {
-        if (resultData == null) {
-            // 初始化
-            resultData = new ArrayList<>();
-        } else {
-            resultData.clear();
-            for (int i = 0; i < dbData.size(); i++) {
-                if (dbData.get(i).getTitle().contains(text.trim())) {
-                    resultData.add(dbData.get(i));
-                }
-            }
-        }
-        if (resultAdapter == null) {
-            resultAdapter = new SearchAdapter(this, resultData, R.layout.item_bean_list);
-        } else {
-            resultAdapter.notifyDataSetChanged();
-        }
+    private void getResultData() {
+        resultAdapter.notifyDataSetChanged();
     }
 
     /**
@@ -204,7 +152,8 @@ public class MainActivity extends Activity implements SearchView.SearchViewListe
     @Override
     public void onRefreshAutoComplete(String text) {
         //更新数据
-        getAutoCompleteData(text);
+        mSearchText = mTvSearch.getText().toString();
+        getSearchData();
     }
 
     /**
@@ -214,8 +163,9 @@ public class MainActivity extends Activity implements SearchView.SearchViewListe
      */
     @Override
     public void onSearch(String text) {
+        getSearchData();
         //更新result数据
-        getResultData(text);
+        getResultData();
         lvResults.setVisibility(View.VISIBLE);
         //第一次获取结果 还未配置适配器
         if (lvResults.getAdapter() == null) {
@@ -225,7 +175,68 @@ public class MainActivity extends Activity implements SearchView.SearchViewListe
             //更新搜索数据
             resultAdapter.notifyDataSetChanged();
         }
-        Toast.makeText(this, "完成搜素", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "完成搜索", Toast.LENGTH_SHORT).show();
+
+
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.menu_main,menu);
+
+        return true;
+    }
+
+    private void getSearchData(){
+
+        final String url = "http://120.79.178.50:18080/entities/_search/full-text?keyword=" + mSearchText;
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                OkHttpClient client = new OkHttpClient();
+                Request request = new Request.Builder().url(url).build();
+                try {
+                    Log.d(TAG, "----------------- 开始发数据 -----------------------");
+                    Response response = client.newCall(request).execute();
+                    String responseString = response.body().string();
+                    Log.d(TAG, responseString);
+
+                    parseData(responseString);
+
+
+                }catch (IOException e){
+                    e.printStackTrace();
+
+                }
+            }
+        }).start();
+    }
+
+    private void parseData(String response){
+        try{
+            JSONObject jsonObject = new JSONObject(response);
+            String status = jsonObject.getString("statusCode");
+
+            if (! "200".equals(status)){
+
+            }else {
+                JSONArray dataJson = jsonObject.getJSONArray("data");
+
+                autoCompleteData.clear();
+                for (int i=0;i < dataJson.length();i++){
+                    JSONObject object = dataJson.getJSONObject(i);
+                    String name = object.getString("FQDN");
+                    autoCompleteData.add(name);
+                }
+
+                Message msg =new Message();
+                mHandler.sendMessage(msg);
+
+            }
+        }catch (JSONException e){
+            e.printStackTrace();
+        }
 
 
     }
